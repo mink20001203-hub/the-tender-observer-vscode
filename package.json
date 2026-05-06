@@ -31,7 +31,28 @@
         "command": "tenderObserver.openWeeklyRhythmLog",
         "title": "Tender Observer: Open Weekly Rhythm Log"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Tender Observer",
+      "properties": {
+        "tenderObserver.whisperEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable gentle whisper messages."
+        },
+        "tenderObserver.sensitivity": {
+          "type": "string",
+          "enum": ["low", "normal", "high"],
+          "default": "normal",
+          "description": "Detection sensitivity for rhythm states."
+        },
+        "tenderObserver.nightWhisperEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow whisper messages during late-night hours (2AM-5AM)."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "tsc -p ./",

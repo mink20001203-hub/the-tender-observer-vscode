@@ -2,6 +2,13 @@
 
 type RhythmState = "calm" | "focused" | "anxious" | "idle" | "lost";
 type TriggerVariant = "A" | "B";
+type Sensitivity = "low" | "normal" | "high";
+
+interface ObserverSettings {
+  whisperEnabled: boolean;
+  sensitivity: Sensitivity;
+  nightWhisperEnabled: boolean;
+}
 
 interface RhythmSnapshot {
   timestamp: string;
@@ -74,16 +81,29 @@ class RhythmMonitor {
   }
 
   private computeState(typingPerMinute: number, switchesPerMinute: number, idleMinutes: number): RhythmState {
-    if (idleMinutes >= 8) {
+    const settings = this.getSettings();
+    const profile = this.sensitivityProfile(settings.sensitivity);
+
+    if (idleMinutes >= profile.idleMinutes) {
       return "idle";
     }
-    if (switchesPerMinute >= 14 || (switchesPerMinute >= 9 && typingPerMinute < 120)) {
+    if (
+      switchesPerMinute >= profile.lostSwitches ||
+      (switchesPerMinute >= profile.lostSwitchesWithLowTyping && typingPerMinute < profile.lowTypingThreshold)
+    ) {
       return "lost";
     }
-    if (typingPerMinute >= 220 || (typingPerMinute >= 150 && switchesPerMinute >= 7)) {
+    if (
+      typingPerMinute >= profile.anxiousTyping ||
+      (typingPerMinute >= profile.anxiousTypingWithSwitches && switchesPerMinute >= profile.anxiousSwitches)
+    ) {
       return "anxious";
     }
-    if (typingPerMinute >= 55 && switchesPerMinute <= 8 && idleMinutes < 2.5) {
+    if (
+      typingPerMinute >= profile.focusedTyping &&
+      switchesPerMinute <= profile.focusedMaxSwitches &&
+      idleMinutes < profile.focusedMaxIdleMinutes
+    ) {
       return "focused";
     }
     return "calm";
@@ -107,6 +127,75 @@ class RhythmMonitor {
     return assigned;
   }
 
+  private getSettings(): ObserverSettings {
+    const config = vscode.workspace.getConfiguration("tenderObserver");
+    const sensitivity = config.get<Sensitivity>("sensitivity", "normal");
+    const normalizedSensitivity: Sensitivity =
+      sensitivity === "low" || sensitivity === "high" || sensitivity === "normal" ? sensitivity : "normal";
+
+    return {
+      whisperEnabled: config.get<boolean>("whisperEnabled", true),
+      sensitivity: normalizedSensitivity,
+      nightWhisperEnabled: config.get<boolean>("nightWhisperEnabled", true)
+    };
+  }
+
+  private sensitivityProfile(sensitivity: Sensitivity): {
+    idleMinutes: number;
+    lostSwitches: number;
+    lostSwitchesWithLowTyping: number;
+    lowTypingThreshold: number;
+    anxiousTyping: number;
+    anxiousTypingWithSwitches: number;
+    anxiousSwitches: number;
+    focusedTyping: number;
+    focusedMaxSwitches: number;
+    focusedMaxIdleMinutes: number;
+  } {
+    if (sensitivity === "low") {
+      return {
+        idleMinutes: 10,
+        lostSwitches: 16,
+        lostSwitchesWithLowTyping: 11,
+        lowTypingThreshold: 110,
+        anxiousTyping: 250,
+        anxiousTypingWithSwitches: 170,
+        anxiousSwitches: 8,
+        focusedTyping: 70,
+        focusedMaxSwitches: 7,
+        focusedMaxIdleMinutes: 2.0
+      };
+    }
+
+    if (sensitivity === "high") {
+      return {
+        idleMinutes: 6,
+        lostSwitches: 12,
+        lostSwitchesWithLowTyping: 8,
+        lowTypingThreshold: 130,
+        anxiousTyping: 190,
+        anxiousTypingWithSwitches: 130,
+        anxiousSwitches: 6,
+        focusedTyping: 45,
+        focusedMaxSwitches: 9,
+        focusedMaxIdleMinutes: 3.0
+      };
+    }
+
+    return {
+      idleMinutes: 8,
+      lostSwitches: 14,
+      lostSwitchesWithLowTyping: 9,
+      lowTypingThreshold: 120,
+      anxiousTyping: 220,
+      anxiousTypingWithSwitches: 150,
+      anxiousSwitches: 7,
+      focusedTyping: 55,
+      focusedMaxSwitches: 8,
+      focusedMaxIdleMinutes: 2.5
+    };
+  }
+
   private whisperForState(
     state: RhythmState,
     previousState: RhythmState,
@@ -114,7 +203,17 @@ class RhythmMonitor {
     now: number,
     idleMinutes: number
   ): { message: string; reason: string } | undefined {
+    const settings = this.getSettings();
+    if (!settings.whisperEnabled) {
+      return undefined;
+    }
+
     const hour = new Date(now).getHours();
+    const isNightHour = hour >= 2 && hour <= 5;
+    if (!settings.nightWhisperEnabled && isNightHour) {
+      return undefined;
+    }
+
     const anxiousStreakThreshold = this.triggerVariant === "A" ? 2 : 3;
     const anxiousCooldown = this.triggerVariant === "A" ? 12 : 16;
     const lostStreakThreshold = this.triggerVariant === "A" ? 2 : 3;
@@ -124,7 +223,7 @@ class RhythmMonitor {
     const focusedNightCooldown = this.triggerVariant === "A" ? 90 : 120;
 
     if (state === "anxious" && stateStreak >= anxiousStreakThreshold && this.canWhisper(now, anxiousCooldown)) {
-      if (hour >= 2 && hour <= 5) {
+      if (isNightHour) {
         return {
           message: "밤의 적막이 깊네요. 당신의 코드는 아름답지만, 내일의 당신을 위해 잠시 램프를 꺼두는 건 어떨까요?",
           reason: `anxious_streak_night_v${this.triggerVariant}`
@@ -158,8 +257,7 @@ class RhythmMonitor {
     if (
       state === "focused" &&
       previousState !== "focused" &&
-      hour >= 2 &&
-      hour <= 5 &&
+      isNightHour &&
       this.canWhisper(now, focusedNightCooldown)
     ) {
       return {
