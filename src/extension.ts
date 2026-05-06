@@ -1,6 +1,7 @@
 ﻿import * as vscode from "vscode";
 
 type RhythmState = "calm" | "focused" | "anxious" | "idle" | "lost";
+type TriggerVariant = "A" | "B";
 
 interface RhythmSnapshot {
   timestamp: string;
@@ -14,6 +15,7 @@ interface RhythmSnapshot {
   intensity: number;
   whisperShown: boolean;
   whisperReason?: string;
+  triggerVariant: TriggerVariant;
 }
 
 class RhythmMonitor {
@@ -24,11 +26,13 @@ class RhythmMonitor {
   private lastState: RhythmState = "calm";
   private stateStreak = 0;
   private snapshots: RhythmSnapshot[] = [];
+  private triggerVariant: TriggerVariant;
   private panel: vscode.WebviewPanel | undefined;
   private statusBar: vscode.StatusBarItem;
   private pulseTimer: NodeJS.Timeout | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
+    this.triggerVariant = this.resolveTriggerVariant();
     this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 8);
     this.statusBar.text = "$(sparkle) Tender Observer";
     this.statusBar.command = "tenderObserver.openAmbient";
@@ -89,6 +93,20 @@ class RhythmMonitor {
     return now - this.lastWhisperAt >= cooldownMinutes * 60_000;
   }
 
+  private resolveTriggerVariant(): TriggerVariant {
+    const key = "tenderObserver.triggerVariant";
+    const existing = this.context.globalState.get<TriggerVariant>(key);
+    if (existing === "A" || existing === "B") {
+      return existing;
+    }
+
+    const seed = `${vscode.env.machineId}:${this.context.extension.id}`;
+    const hash = [...seed].reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const assigned: TriggerVariant = hash % 2 === 0 ? "A" : "B";
+    void this.context.globalState.update(key, assigned);
+    return assigned;
+  }
+
   private whisperForState(
     state: RhythmState,
     previousState: RhythmState,
@@ -97,38 +115,56 @@ class RhythmMonitor {
     idleMinutes: number
   ): { message: string; reason: string } | undefined {
     const hour = new Date(now).getHours();
+    const anxiousStreakThreshold = this.triggerVariant === "A" ? 2 : 3;
+    const anxiousCooldown = this.triggerVariant === "A" ? 12 : 16;
+    const lostStreakThreshold = this.triggerVariant === "A" ? 2 : 3;
+    const lostCooldown = this.triggerVariant === "A" ? 10 : 14;
+    const idleThresholdMinutes = this.triggerVariant === "A" ? 12 : 15;
+    const idleCooldown = this.triggerVariant === "A" ? 30 : 40;
+    const focusedNightCooldown = this.triggerVariant === "A" ? 90 : 120;
 
-    if (state === "anxious" && stateStreak >= 2 && this.canWhisper(now, 12)) {
+    if (state === "anxious" && stateStreak >= anxiousStreakThreshold && this.canWhisper(now, anxiousCooldown)) {
       if (hour >= 2 && hour <= 5) {
         return {
           message: "밤의 적막이 깊네요. 당신의 코드는 아름답지만, 내일의 당신을 위해 잠시 램프를 꺼두는 건 어떨까요?",
-          reason: "anxious_streak_night"
+          reason: `anxious_streak_night_v${this.triggerVariant}`
         };
       }
       return {
         message: "잠시 커피를 내리는 향기가 그리운 시간입니다. 지친 마음을 잠시 비우고 돌아오세요.",
-        reason: "anxious_streak"
+        reason: `anxious_streak_v${this.triggerVariant}`
       };
     }
 
-    if (state === "lost" && stateStreak >= 2 && this.canWhisper(now, 10)) {
+    if (state === "lost" && stateStreak >= lostStreakThreshold && this.canWhisper(now, lostCooldown)) {
       return {
         message: "길을 찾는 손끝에도 리듬이 있습니다. 한 파일만 고르고, 숨을 고른 뒤 다시 시작해요.",
-        reason: "lost_streak"
+        reason: `lost_streak_v${this.triggerVariant}`
       };
     }
 
-    if (state === "idle" && previousState !== "idle" && idleMinutes >= 12 && this.canWhisper(now, 30)) {
+    if (
+      state === "idle" &&
+      previousState !== "idle" &&
+      idleMinutes >= idleThresholdMinutes &&
+      this.canWhisper(now, idleCooldown)
+    ) {
       return {
         message: "고요한 틈도 작업의 일부입니다. 돌아오는 걸음이 조금 더 가벼워지길 바랍니다.",
-        reason: "idle_transition_long"
+        reason: `idle_transition_long_v${this.triggerVariant}`
       };
     }
 
-    if (state === "focused" && previousState !== "focused" && hour >= 2 && hour <= 5 && this.canWhisper(now, 90)) {
+    if (
+      state === "focused" &&
+      previousState !== "focused" &&
+      hour >= 2 &&
+      hour <= 5 &&
+      this.canWhisper(now, focusedNightCooldown)
+    ) {
       return {
         message: "깊은 몰입이 이어지고 있어요. 지금은 집중을 마무리하고 쉬어갈 타이밍일지도 모릅니다.",
-        reason: "focused_transition_night"
+        reason: `focused_transition_night_v${this.triggerVariant}`
       };
     }
 
@@ -162,7 +198,8 @@ class RhythmMonitor {
       stateStreak: this.stateStreak,
       intensity: Number(intensity.toFixed(3)),
       whisperShown: Boolean(whisper),
-      whisperReason: whisper?.reason
+      whisperReason: whisper?.reason,
+      triggerVariant: this.triggerVariant
     };
 
     this.snapshots.push(snapshot);
