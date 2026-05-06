@@ -15,6 +15,9 @@ class RhythmMonitor {
   private keyStrokes = 0;
   private fileSwitches = 0;
   private lastInputAt = Date.now();
+  private lastWhisperAt = 0;
+  private lastState: RhythmState = "calm";
+  private stateStreak = 0;
   private snapshots: RhythmSnapshot[] = [];
   private panel: vscode.WebviewPanel | undefined;
   private statusBar: vscode.StatusBarItem;
@@ -32,7 +35,7 @@ class RhythmMonitor {
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeTextDocument((event) => {
         if (event.contentChanges.length > 0) {
-          this.keyStrokes += event.contentChanges.reduce((acc, item) => acc + item.text.length, 1);
+          this.keyStrokes += event.contentChanges.reduce((acc, item) => acc + item.text.length, 0);
           this.lastInputAt = Date.now();
         }
       }),
@@ -61,35 +64,53 @@ class RhythmMonitor {
   }
 
   private computeState(typingPerMinute: number, switchesPerMinute: number, idleMinutes: number): RhythmState {
-    if (idleMinutes >= 10) {
+    if (idleMinutes >= 8) {
       return "idle";
     }
-    if (switchesPerMinute >= 16) {
+    if (switchesPerMinute >= 14 || (switchesPerMinute >= 9 && typingPerMinute < 120)) {
       return "lost";
     }
-    if (typingPerMinute >= 280 || (typingPerMinute >= 180 && switchesPerMinute >= 10)) {
+    if (typingPerMinute >= 220 || (typingPerMinute >= 150 && switchesPerMinute >= 7)) {
       return "anxious";
     }
-    if (typingPerMinute >= 90) {
+    if (typingPerMinute >= 55 && switchesPerMinute <= 8 && idleMinutes < 2.5) {
       return "focused";
     }
     return "calm";
   }
 
-  private literaryWhisper(state: RhythmState): string | undefined {
-    const hour = new Date().getHours();
-    if (hour >= 2 && hour <= 5 && (state === "focused" || state === "anxious")) {
-      return "밤의 적막이 깊네요. 당신의 코드는 아름답지만, 내일의 당신을 위해 잠시 램프를 꺼두는 건 어떨까요?";
-    }
-    if (state === "anxious") {
+  private canWhisper(now: number, cooldownMinutes: number): boolean {
+    return now - this.lastWhisperAt >= cooldownMinutes * 60_000;
+  }
+
+  private whisperForState(
+    state: RhythmState,
+    previousState: RhythmState,
+    stateStreak: number,
+    now: number,
+    idleMinutes: number
+  ): string | undefined {
+    const hour = new Date(now).getHours();
+
+    if (state === "anxious" && stateStreak >= 2 && this.canWhisper(now, 12)) {
+      if (hour >= 2 && hour <= 5) {
+        return "밤의 적막이 깊네요. 당신의 코드는 아름답지만, 내일의 당신을 위해 잠시 램프를 꺼두는 건 어떨까요?";
+      }
       return "잠시 커피를 내리는 향기가 그리운 시간입니다. 지친 마음을 잠시 비우고 돌아오세요.";
     }
-    if (state === "lost") {
+
+    if (state === "lost" && stateStreak >= 2 && this.canWhisper(now, 10)) {
       return "길을 찾는 손끝에도 리듬이 있습니다. 한 파일만 고르고, 숨을 고른 뒤 다시 시작해요.";
     }
-    if (state === "idle") {
+
+    if (state === "idle" && previousState !== "idle" && idleMinutes >= 12 && this.canWhisper(now, 30)) {
       return "고요한 틈도 작업의 일부입니다. 돌아오는 걸음이 조금 더 가벼워지길 바랍니다.";
     }
+
+    if (state === "focused" && previousState !== "focused" && hour >= 2 && hour <= 5 && this.canWhisper(now, 90)) {
+      return "깊은 몰입이 이어지고 있어요. 지금은 집중을 마무리하고 쉬어갈 타이밍일지도 모릅니다.";
+    }
+
     return undefined;
   }
 
@@ -103,6 +124,10 @@ class RhythmMonitor {
     this.fileSwitches = 0;
 
     const state = this.computeState(typingPerMinute, switchesPerMinute, idleMinutes);
+    const previousState = this.lastState;
+    this.stateStreak = state === previousState ? this.stateStreak + 1 : 1;
+    this.lastState = state;
+
     const snapshot: RhythmSnapshot = {
       timestamp: new Date(now).toISOString(),
       hour: new Date(now).getHours(),
@@ -125,8 +150,9 @@ class RhythmMonitor {
       intensity: Math.min(1, (typingPerMinute + switchesPerMinute * 6) / 320)
     });
 
-    const whisper = this.literaryWhisper(state);
+    const whisper = this.whisperForState(state, previousState, this.stateStreak, now, idleMinutes);
     if (whisper) {
+      this.lastWhisperAt = now;
       this.postAmbient({ type: "whisper", message: whisper });
     }
   }
@@ -264,6 +290,8 @@ class RhythmMonitor {
 export function activate(context: vscode.ExtensionContext): void {
   const monitor = new RhythmMonitor(context);
   monitor.start();
+  console.log("Tender Observer activated");
+  void vscode.window.showInformationMessage("Tender Observer is awake.");
 }
 
 export function deactivate(): void {
