@@ -1,9 +1,21 @@
 ﻿{
   "name": "tender-observer",
   "displayName": "The Tender Observer",
-  "description": "A quiet companion for burned-out developers inside VS Code.",
+  "description": "A privacy-first ambient companion that observes coding rhythm and offers minimal, gentle interventions.",
   "version": "0.0.1",
   "publisher": "appless-future",
+  "keywords": [
+    "wellbeing",
+    "focus",
+    "productivity",
+    "ambient",
+    "mindful-coding",
+    "developer-experience"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/appless-future/tender-observer-vscode.git"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
