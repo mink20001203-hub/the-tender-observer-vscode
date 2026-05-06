@@ -270,14 +270,55 @@ class RhythmMonitor {
         const folder = vscode.Uri.joinPath(this.context.globalStorageUri, "rhythm");
         const file = vscode.Uri.joinPath(folder, "weekly-rhythm.json");
         await vscode.workspace.fs.createDirectory(folder);
-        const payload = {
-            schemaVersion: 1,
-            privacy: "local-memory-and-local-storage-only",
-            updatedAt: new Date().toISOString(),
-            snapshots: this.snapshots
-        };
+        const payload = this.buildWeeklyPayload();
         const encoded = new TextEncoder().encode(JSON.stringify(payload, null, 2));
         await vscode.workspace.fs.writeFile(file, encoded);
+    }
+    buildWeeklyPayload() {
+        const totalSnapshots = this.snapshots.length;
+        const whisperCount = this.snapshots.reduce((count, snapshot) => (snapshot.whisperShown ? count + 1 : count), 0);
+        const stateCounts = {
+            calm: 0,
+            focused: 0,
+            anxious: 0,
+            idle: 0,
+            lost: 0
+        };
+        let typingSum = 0;
+        let switchesSum = 0;
+        let idleSum = 0;
+        let intensitySum = 0;
+        for (const snapshot of this.snapshots) {
+            stateCounts[snapshot.state] += 1;
+            typingSum += snapshot.typingPerMinute;
+            switchesSum += snapshot.switchesPerMinute;
+            idleSum += snapshot.idleMinutes;
+            intensitySum += snapshot.intensity;
+        }
+        const divisor = totalSnapshots > 0 ? totalSnapshots : 1;
+        const settings = this.getSettings();
+        return {
+            schemaVersion: 2,
+            privacy: "local-memory-and-local-storage-only",
+            updatedAt: new Date().toISOString(),
+            meta: {
+                generatedAt: new Date().toISOString(),
+                extensionVersion: this.context.extension.packageJSON.version ?? "0.0.0",
+                sampleIntervalSeconds: 60,
+                triggerVariant: this.triggerVariant,
+                settings
+            },
+            summary: {
+                totalSnapshots,
+                whisperCount,
+                stateCounts,
+                averageTypingPerMinute: Number((typingSum / divisor).toFixed(2)),
+                averageSwitchesPerMinute: Number((switchesSum / divisor).toFixed(2)),
+                averageIdleMinutes: Number((idleSum / divisor).toFixed(2)),
+                averageIntensity: Number((intensitySum / divisor).toFixed(3))
+            },
+            snapshots: this.snapshots
+        };
     }
     async openWeeklyRhythmLog() {
         const folder = vscode.Uri.joinPath(this.context.globalStorageUri, "rhythm");
@@ -288,9 +329,31 @@ class RhythmMonitor {
         }
         catch {
             const emptyPayload = {
-                schemaVersion: 1,
+                schemaVersion: 2,
                 privacy: "local-memory-and-local-storage-only",
                 updatedAt: new Date().toISOString(),
+                meta: {
+                    generatedAt: new Date().toISOString(),
+                    extensionVersion: this.context.extension.packageJSON.version ?? "0.0.0",
+                    sampleIntervalSeconds: 60,
+                    triggerVariant: this.triggerVariant,
+                    settings: this.getSettings()
+                },
+                summary: {
+                    totalSnapshots: 0,
+                    whisperCount: 0,
+                    stateCounts: {
+                        calm: 0,
+                        focused: 0,
+                        anxious: 0,
+                        idle: 0,
+                        lost: 0
+                    },
+                    averageTypingPerMinute: 0,
+                    averageSwitchesPerMinute: 0,
+                    averageIdleMinutes: 0,
+                    averageIntensity: 0
+                },
                 snapshots: []
             };
             const encoded = new TextEncoder().encode(JSON.stringify(emptyPayload, null, 2));
