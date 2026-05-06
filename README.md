@@ -1,84 +1,84 @@
-# The Tender Observer (VS Code Extension)
+# The Tender Observer (VS Code 확장)
 
-A privacy-first ambient companion that observes coding rhythm and responds with minimal, gentle interventions.
+코딩 리듬을 로컬에서 관찰하고, 필요한 순간에만 조용하게 개입하는 프라이버시 우선 확장입니다.
 
-## What It Does
+## 무엇을 하나요
 
-- Samples local activity every 60 seconds:
-  - typing amount
-  - file switches
-  - idle duration
-- Classifies rhythm state:
+- 60초마다 로컬 작업 신호를 수집합니다.
+  - 타이핑량
+  - 파일 전환 수
+  - 유휴 시간
+- 작업 리듬 상태를 분류합니다.
   - `calm`, `focused`, `anxious`, `idle`, `lost`
-- Renders ambient feedback in a webview
-- Shows whisper messages only when trigger rules are met
-- Saves all data locally in `weekly-rhythm.json` (schema v2)
+- 웹뷰로 앰비언트 피드백을 보여줍니다.
+- 트리거 조건을 만족할 때만 whisper 메시지를 노출합니다.
+- 모든 데이터는 로컬 `weekly-rhythm.json`(schema v2)에 저장합니다.
 
-## Usage Scenario
+## 사용 시나리오
 
-1. Start coding as usual.
-2. Open `Tender Observer: Open Ambient View`.
-3. Keep the panel open while you work.
-4. Let the extension classify your rhythm and occasionally intervene.
-5. Review accumulated data via `Tender Observer: Open Weekly Rhythm Log`.
+1. 평소처럼 코딩을 시작합니다.
+2. `Tender Observer: Open Ambient View` 명령으로 패널을 엽니다.
+3. 작업 중 패널을 열어둔 채 리듬 변화를 관찰합니다.
+4. 필요한 순간에만 개입 메시지를 받습니다.
+5. `Tender Observer: Open Weekly Rhythm Log`로 누적 데이터를 확인합니다.
 
-This is designed for low-friction awareness, not constant coaching.
+이 확장은 끊임없이 코치하는 도구가 아니라, 부담을 줄인 작업 인식 도구를 목표로 합니다.
 
-## Commands
+## 명령어
 
 - `Tender Observer: Open Ambient View`
 - `Tender Observer: Open Weekly Rhythm Log`
 - `Tender Observer: Secret Mode (Disperse)`
 
-## Settings
+## 설정
 
-Use VS Code Settings (`tenderObserver.*`):
+VS Code 설정의 `tenderObserver.*` 키를 사용합니다.
 
 - `tenderObserver.whisperEnabled` (`true`/`false`)
-  - master switch for whisper messages
+  - whisper 메시지 전체 on/off
 - `tenderObserver.sensitivity` (`low`/`normal`/`high`)
-  - controls classification thresholds
+  - 상태 분류 민감도 조절
 - `tenderObserver.nightWhisperEnabled` (`true`/`false`)
-  - allows or blocks whisper interventions during 2AM-5AM
+  - 새벽 시간(2AM-5AM) 개입 허용/차단
 
-## Trigger Philosophy
+## 개입 철학
 
-- Intervene only when there is sustained signal, not on one noisy minute.
-- Apply cooldowns to avoid user fatigue.
-- Keep behavior local and explainable through logs.
-- Compare trigger variants (`A`/`B`) to find lower-fatigue rules.
+- 1분짜리 노이즈보다, 지속된 신호를 우선합니다.
+- 쿨다운으로 과도한 개입을 방지합니다.
+- 동작은 로컬 중심이며, 로그로 설명 가능해야 합니다.
+- A/B 트리거(`A`/`B`)를 비교해 피로도가 낮은 규칙을 찾습니다.
 
-## Data Schema (weekly-rhythm.json v2)
+## 데이터 스키마 (weekly-rhythm.json v2)
 
-The file includes:
+파일은 다음 구조를 포함합니다.
 
 - `meta`
-  - extension version
-  - sample interval
-  - A/B trigger variant
-  - active settings snapshot
+  - 확장 버전
+  - 샘플링 간격
+  - A/B 트리거 변형
+  - 활성 설정 스냅샷
 - `summary`
-  - state counts
-  - whisper count
-  - averaged metrics
+  - 상태별 집계
+  - whisper 발생 횟수
+  - 평균 지표
 - `snapshots`
-  - minute-level observations and trigger reasons
+  - 분 단위 관측값과 트리거 이유
 
-## Debugging Checklist
+## 디버깅 체크리스트
 
-1. Build check:
+1. 빌드 확인
    - `npm run build`
-2. If commands do not appear:
-   - reload VS Code window
-   - confirm extension is installed and enabled
-3. If TypeScript diagnostics look wrong (`NodeJS`, `setInterval`, `TextEncoder` missing):
-   - select workspace TypeScript version
-   - restart TS server
-4. If behavior looks too noisy or too quiet:
-   - tune `tenderObserver.sensitivity`
-   - inspect `triggerVariant` and `whisperReason` in the weekly log
+2. 명령어가 안 보일 때
+   - VS Code 창 다시 로드
+   - 확장 설치/활성 상태 확인
+3. TypeScript 진단이 이상할 때 (`NodeJS`, `setInterval`, `TextEncoder` 등)
+   - Workspace TypeScript 버전 선택
+   - TS 서버 재시작
+4. 개입이 너무 잦거나 너무 적을 때
+   - `tenderObserver.sensitivity` 조정
+   - 주간 로그의 `triggerVariant`, `whisperReason` 확인
 
-## Privacy
+## 개인정보/프라이버시
 
-All runtime signals are processed and stored locally.
-No external network transmission is included by this extension.
+런타임 신호는 로컬에서 처리되고 로컬에만 저장됩니다.
+이 확장은 외부 네트워크 전송을 포함하지 않습니다.
