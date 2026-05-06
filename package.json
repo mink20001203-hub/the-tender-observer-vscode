@@ -1,0 +1,40 @@
+﻿{
+  "name": "tender-observer",
+  "displayName": "The Tender Observer",
+  "description": "A quiet companion for burned-out developers inside VS Code.",
+  "version": "0.0.1",
+  "publisher": "appless-future",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:tenderObserver.openAmbient",
+    "onCommand:tenderObserver.secretMode"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "tenderObserver.openAmbient",
+        "title": "Tender Observer: Open Ambient View"
+      },
+      {
+        "command": "tenderObserver.secretMode",
+        "title": "Tender Observer: Secret Mode (Disperse)"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.5"
+  }
+}
