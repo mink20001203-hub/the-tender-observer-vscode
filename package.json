@@ -13,6 +13,7 @@
   "activationEvents": [
     "onStartupFinished",
     "onCommand:tenderObserver.openAmbient",
+    "onCommand:tenderObserver.openWeeklyRhythmLog",
     "onCommand:tenderObserver.secretMode"
   ],
   "main": "./dist/extension.js",
@@ -25,6 +26,10 @@
       {
         "command": "tenderObserver.secretMode",
         "title": "Tender Observer: Secret Mode (Disperse)"
+      },
+      {
+        "command": "tenderObserver.openWeeklyRhythmLog",
+        "title": "Tender Observer: Open Weekly Rhythm Log"
       }
     ]
   },

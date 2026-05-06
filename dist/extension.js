@@ -64,7 +64,7 @@ class RhythmMonitor {
             }
         }), vscode.window.onDidChangeActiveTextEditor(() => {
             this.fileSwitches += 1;
-        }), vscode.commands.registerCommand("tenderObserver.openAmbient", () => this.openPanel()), vscode.commands.registerCommand("tenderObserver.secretMode", () => {
+        }), vscode.commands.registerCommand("tenderObserver.openAmbient", () => this.openPanel()), vscode.commands.registerCommand("tenderObserver.openWeeklyRhythmLog", () => void this.openWeeklyRhythmLog()), vscode.commands.registerCommand("tenderObserver.secretMode", () => {
             this.postAmbient({ type: "disperse" });
             vscode.window.setStatusBarMessage("Tender Observer entered secret mode.", 1800);
         }), this.statusBar);
@@ -101,18 +101,33 @@ class RhythmMonitor {
         const hour = new Date(now).getHours();
         if (state === "anxious" && stateStreak >= 2 && this.canWhisper(now, 12)) {
             if (hour >= 2 && hour <= 5) {
-                return "밤의 적막이 깊네요. 당신의 코드는 아름답지만, 내일의 당신을 위해 잠시 램프를 꺼두는 건 어떨까요?";
+                return {
+                    message: "밤의 적막이 깊네요. 당신의 코드는 아름답지만, 내일의 당신을 위해 잠시 램프를 꺼두는 건 어떨까요?",
+                    reason: "anxious_streak_night"
+                };
             }
-            return "잠시 커피를 내리는 향기가 그리운 시간입니다. 지친 마음을 잠시 비우고 돌아오세요.";
+            return {
+                message: "잠시 커피를 내리는 향기가 그리운 시간입니다. 지친 마음을 잠시 비우고 돌아오세요.",
+                reason: "anxious_streak"
+            };
         }
         if (state === "lost" && stateStreak >= 2 && this.canWhisper(now, 10)) {
-            return "길을 찾는 손끝에도 리듬이 있습니다. 한 파일만 고르고, 숨을 고른 뒤 다시 시작해요.";
+            return {
+                message: "길을 찾는 손끝에도 리듬이 있습니다. 한 파일만 고르고, 숨을 고른 뒤 다시 시작해요.",
+                reason: "lost_streak"
+            };
         }
         if (state === "idle" && previousState !== "idle" && idleMinutes >= 12 && this.canWhisper(now, 30)) {
-            return "고요한 틈도 작업의 일부입니다. 돌아오는 걸음이 조금 더 가벼워지길 바랍니다.";
+            return {
+                message: "고요한 틈도 작업의 일부입니다. 돌아오는 걸음이 조금 더 가벼워지길 바랍니다.",
+                reason: "idle_transition_long"
+            };
         }
         if (state === "focused" && previousState !== "focused" && hour >= 2 && hour <= 5 && this.canWhisper(now, 90)) {
-            return "깊은 몰입이 이어지고 있어요. 지금은 집중을 마무리하고 쉬어갈 타이밍일지도 모릅니다.";
+            return {
+                message: "깊은 몰입이 이어지고 있어요. 지금은 집중을 마무리하고 쉬어갈 타이밍일지도 모릅니다.",
+                reason: "focused_transition_night"
+            };
         }
         return undefined;
     }
@@ -127,13 +142,20 @@ class RhythmMonitor {
         const previousState = this.lastState;
         this.stateStreak = state === previousState ? this.stateStreak + 1 : 1;
         this.lastState = state;
+        const intensity = Math.min(1, (typingPerMinute + switchesPerMinute * 6) / 320);
+        const whisper = this.whisperForState(state, previousState, this.stateStreak, now, idleMinutes);
         const snapshot = {
             timestamp: new Date(now).toISOString(),
             hour: new Date(now).getHours(),
             typingPerMinute,
             switchesPerMinute,
             idleMinutes: Number(idleMinutes.toFixed(2)),
-            state
+            state,
+            previousState,
+            stateStreak: this.stateStreak,
+            intensity: Number(intensity.toFixed(3)),
+            whisperShown: Boolean(whisper),
+            whisperReason: whisper?.reason
         };
         this.snapshots.push(snapshot);
         if (this.snapshots.length > 10_080) {
@@ -143,12 +165,11 @@ class RhythmMonitor {
         this.postAmbient({
             type: "state",
             state,
-            intensity: Math.min(1, (typingPerMinute + switchesPerMinute * 6) / 320)
+            intensity
         });
-        const whisper = this.whisperForState(state, previousState, this.stateStreak, now, idleMinutes);
         if (whisper) {
             this.lastWhisperAt = now;
-            this.postAmbient({ type: "whisper", message: whisper });
+            this.postAmbient({ type: "whisper", message: whisper.message });
         }
     }
     async persistWeeklyRhythm() {
@@ -163,6 +184,26 @@ class RhythmMonitor {
         };
         const encoded = new TextEncoder().encode(JSON.stringify(payload, null, 2));
         await vscode.workspace.fs.writeFile(file, encoded);
+    }
+    async openWeeklyRhythmLog() {
+        const folder = vscode.Uri.joinPath(this.context.globalStorageUri, "rhythm");
+        const file = vscode.Uri.joinPath(folder, "weekly-rhythm.json");
+        await vscode.workspace.fs.createDirectory(folder);
+        try {
+            await vscode.workspace.fs.stat(file);
+        }
+        catch {
+            const emptyPayload = {
+                schemaVersion: 1,
+                privacy: "local-memory-and-local-storage-only",
+                updatedAt: new Date().toISOString(),
+                snapshots: []
+            };
+            const encoded = new TextEncoder().encode(JSON.stringify(emptyPayload, null, 2));
+            await vscode.workspace.fs.writeFile(file, encoded);
+        }
+        const document = await vscode.workspace.openTextDocument(file);
+        await vscode.window.showTextDocument(document, { preview: false });
     }
     openPanel() {
         if (this.panel) {
