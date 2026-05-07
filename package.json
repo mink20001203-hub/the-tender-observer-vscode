@@ -68,7 +68,8 @@
   },
   "scripts": {
     "build": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "test": "npm run build && node --test --test-isolation=none \"dist/tests/*.test.js\""
   },
   "devDependencies": {
     "@types/node": "^20.12.12",

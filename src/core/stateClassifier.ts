@@ -1,5 +1,5 @@
 import { RhythmState, Sensitivity } from "./types";
-import { sensitivityProfile } from "./settings";
+import { sensitivityProfile } from "./sensitivityProfile";
 
 export function computeState(
   typingPerMinute: number,

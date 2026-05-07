@@ -1,9 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.computeState = computeState;
-const settings_1 = require("./settings");
+const sensitivityProfile_1 = require("./sensitivityProfile");
 function computeState(typingPerMinute, switchesPerMinute, idleMinutes, sensitivity) {
-    const profile = (0, settings_1.sensitivityProfile)(sensitivity);
+    const profile = (0, sensitivityProfile_1.sensitivityProfile)(sensitivity);
     if (idleMinutes >= profile.idleMinutes) {
         return "idle";
     }
