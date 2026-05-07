@@ -1,0 +1,158 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+const electron_1 = require("electron");
+const window_1 = require("./window");
+const ipc_1 = require("./ipc");
+const config_1 = require("../shared/config");
+const node_fs_1 = require("node:fs");
+const promises_1 = require("node:fs/promises");
+const path = __importStar(require("node:path"));
+function createSamplePayload(behavior, opacity, scoreWeights) {
+    const idleSeconds = electron_1.powerMonitor.getSystemIdleTime();
+    if (idleSeconds >= 8 * 60) {
+        return {
+            state: "idle",
+            message: "지금은 고요한 흐름이에요. 잠시 쉬어가도 괜찮습니다.",
+            updatedAt: new Date().toISOString(),
+            behavior,
+            opacity,
+            scoreWeights
+        };
+    }
+    return {
+        state: "calm",
+        message: "지금은 조용한 흐름이에요.",
+        updatedAt: new Date().toISOString(),
+        behavior,
+        opacity,
+        scoreWeights
+    };
+}
+async function bootstrap() {
+    const window = (0, window_1.createOverlayWindow)();
+    (0, ipc_1.registerIpc)(window);
+    const configDir = electron_1.app.getPath("userData");
+    const configFile = path.join(configDir, "overlay-config.json");
+    let scoreWeights = { ...config_1.DEFAULT_SCORE_WEIGHTS };
+    let behavior = "resting";
+    let opacity = config_1.OVERLAY_CONFIG.normalOpacity;
+    let lastDriftAt = Date.now();
+    let lastAvoidAt = 0;
+    const normalizeWeights = (input) => {
+        const away = Number(input?.away);
+        const edge = Number(input?.edge);
+        const centerAvoid = Number(input?.centerAvoid);
+        if (!Number.isFinite(away) || !Number.isFinite(edge) || !Number.isFinite(centerAvoid)) {
+            return { ...config_1.DEFAULT_SCORE_WEIGHTS };
+        }
+        const sum = away + edge + centerAvoid;
+        if (sum <= 0) {
+            return { ...config_1.DEFAULT_SCORE_WEIGHTS };
+        }
+        return {
+            away: away / sum,
+            edge: edge / sum,
+            centerAvoid: centerAvoid / sum
+        };
+    };
+    const applyWeightsFromFile = () => {
+        try {
+            const raw = JSON.parse((0, node_fs_1.readFileSync)(configFile, "utf8"));
+            scoreWeights = normalizeWeights(raw.scoreWeights);
+            console.log("[overlay] scoreWeights updated:", scoreWeights);
+        }
+        catch {
+            scoreWeights = { ...config_1.DEFAULT_SCORE_WEIGHTS };
+        }
+    };
+    if (!(0, node_fs_1.existsSync)(configDir)) {
+        await (0, promises_1.mkdir)(configDir, { recursive: true });
+    }
+    if (!(0, node_fs_1.existsSync)(configFile)) {
+        const payload = { scoreWeights: config_1.DEFAULT_SCORE_WEIGHTS };
+        await (0, promises_1.writeFile)(configFile, JSON.stringify(payload, null, 2), "utf8");
+    }
+    applyWeightsFromFile();
+    (0, node_fs_1.watch)(configFile, { persistent: false }, () => {
+        applyWeightsFromFile();
+    });
+    const publishOverlayState = () => {
+        const payload = createSamplePayload(behavior, opacity, scoreWeights);
+        window.setOpacity(payload.opacity);
+        window.webContents.send("overlay:update", payload);
+    };
+    const tickBehavior = () => {
+        const bounds = window.getBounds();
+        const cursor = electron_1.screen.getCursorScreenPoint();
+        const centerX = bounds.x + bounds.width / 2;
+        const centerY = bounds.y + bounds.height / 2;
+        const distance = Math.hypot(centerX - cursor.x, centerY - cursor.y);
+        const now = Date.now();
+        if (distance <= config_1.OVERLAY_CONFIG.avoidRadiusPx) {
+            const next = (0, window_1.calculateAvoidPosition)(window, cursor, scoreWeights);
+            window.setPosition(next.x, next.y, true);
+            behavior = "avoid";
+            opacity = config_1.OVERLAY_CONFIG.avoidOpacity;
+            lastAvoidAt = now;
+            publishOverlayState();
+            return;
+        }
+        if (now - lastAvoidAt < 2_000) {
+            return;
+        }
+        opacity = config_1.OVERLAY_CONFIG.normalOpacity;
+        if (now - lastDriftAt >= config_1.OVERLAY_CONFIG.driftIntervalMs) {
+            const next = (0, window_1.calculateDriftPosition)(window, scoreWeights);
+            window.setPosition(next.x, next.y, true);
+            behavior = "drift";
+            lastDriftAt = now;
+            publishOverlayState();
+            return;
+        }
+        behavior = "resting";
+    };
+    window.webContents.once("did-finish-load", () => {
+        publishOverlayState();
+        setInterval(tickBehavior, config_1.OVERLAY_CONFIG.behaviorTickMs);
+        setInterval(publishOverlayState, config_1.OVERLAY_CONFIG.sampleIntervalMs);
+    });
+}
+electron_1.app.whenReady().then(() => {
+    void bootstrap();
+});
+electron_1.app.on("window-all-closed", () => {
+    electron_1.app.quit();
+});

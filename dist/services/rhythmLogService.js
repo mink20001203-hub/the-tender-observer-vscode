@@ -40,6 +40,49 @@ exports.readWeeklyInsights = readWeeklyInsights;
 const vscode = __importStar(require("vscode"));
 const weeklyInsights_1 = require("../core/weeklyInsights");
 const weeklyPayload_1 = require("../core/weeklyPayload");
+function createEmptyPayload(params) {
+    return {
+        schemaVersion: 2,
+        privacy: "local-memory-and-local-storage-only",
+        updatedAt: new Date().toISOString(),
+        meta: {
+            generatedAt: new Date().toISOString(),
+            extensionVersion: params.context.extension.packageJSON.version ?? "0.0.0",
+            sampleIntervalSeconds: 60,
+            triggerVariant: params.triggerVariant,
+            settings: params.settings
+        },
+        summary: {
+            totalSnapshots: 0,
+            whisperCount: 0,
+            stateCounts: {
+                calm: 0,
+                focused: 0,
+                anxious: 0,
+                idle: 0,
+                lost: 0
+            },
+            averageTypingPerMinute: 0,
+            averageSwitchesPerMinute: 0,
+            averageIdleMinutes: 0,
+            averageIntensity: 0
+        },
+        snapshots: []
+    };
+}
+function normalizeWeeklyPayload(params) {
+    const rawObject = params.raw;
+    const snapshots = Array.isArray(rawObject?.snapshots) ? rawObject.snapshots : [];
+    if (rawObject?.summary && rawObject?.meta && typeof rawObject.updatedAt === "string") {
+        return rawObject;
+    }
+    return (0, weeklyPayload_1.buildWeeklyPayload)({
+        snapshots,
+        triggerVariant: params.triggerVariant,
+        settings: params.settings,
+        extensionVersion: params.context.extension.packageJSON.version ?? "0.0.0"
+    });
+}
 async function persistWeeklyRhythm(params) {
     const folder = vscode.Uri.joinPath(params.context.globalStorageUri, "rhythm");
     const file = vscode.Uri.joinPath(folder, "weekly-rhythm.json");
@@ -61,34 +104,7 @@ async function openWeeklyRhythmLog(params) {
         await vscode.workspace.fs.stat(file);
     }
     catch {
-        const emptyPayload = {
-            schemaVersion: 2,
-            privacy: "local-memory-and-local-storage-only",
-            updatedAt: new Date().toISOString(),
-            meta: {
-                generatedAt: new Date().toISOString(),
-                extensionVersion: params.context.extension.packageJSON.version ?? "0.0.0",
-                sampleIntervalSeconds: 60,
-                triggerVariant: params.triggerVariant,
-                settings: params.settings
-            },
-            summary: {
-                totalSnapshots: 0,
-                whisperCount: 0,
-                stateCounts: {
-                    calm: 0,
-                    focused: 0,
-                    anxious: 0,
-                    idle: 0,
-                    lost: 0
-                },
-                averageTypingPerMinute: 0,
-                averageSwitchesPerMinute: 0,
-                averageIdleMinutes: 0,
-                averageIntensity: 0
-            },
-            snapshots: []
-        };
+        const emptyPayload = createEmptyPayload(params);
         const encoded = new TextEncoder().encode(JSON.stringify(emptyPayload, null, 2));
         await vscode.workspace.fs.writeFile(file, encoded);
     }
@@ -102,37 +118,15 @@ async function readWeeklyRhythmPayload(params) {
     let payload;
     try {
         const bytes = await vscode.workspace.fs.readFile(file);
-        payload = JSON.parse(new TextDecoder().decode(bytes));
+        payload = normalizeWeeklyPayload({
+            raw: JSON.parse(new TextDecoder().decode(bytes)),
+            context: params.context,
+            triggerVariant: params.triggerVariant,
+            settings: params.settings
+        });
     }
     catch {
-        payload = {
-            schemaVersion: 2,
-            privacy: "local-memory-and-local-storage-only",
-            updatedAt: new Date().toISOString(),
-            meta: {
-                generatedAt: new Date().toISOString(),
-                extensionVersion: params.context.extension.packageJSON.version ?? "0.0.0",
-                sampleIntervalSeconds: 60,
-                triggerVariant: params.triggerVariant,
-                settings: params.settings
-            },
-            summary: {
-                totalSnapshots: 0,
-                whisperCount: 0,
-                stateCounts: {
-                    calm: 0,
-                    focused: 0,
-                    anxious: 0,
-                    idle: 0,
-                    lost: 0
-                },
-                averageTypingPerMinute: 0,
-                averageSwitchesPerMinute: 0,
-                averageIdleMinutes: 0,
-                averageIntensity: 0
-            },
-            snapshots: []
-        };
+        payload = createEmptyPayload(params);
     }
     return payload;
 }

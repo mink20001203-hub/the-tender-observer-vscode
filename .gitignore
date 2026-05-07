@@ -1,0 +1,4 @@
+node_modules/
+packages/desktop-overlay/node_modules/
+.vscode/
+*.vsix

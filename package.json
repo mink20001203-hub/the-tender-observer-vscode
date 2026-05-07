@@ -2,7 +2,7 @@
   "name": "tender-observer",
   "displayName": "The Tender Observer",
   "description": "A privacy-first ambient companion that observes coding rhythm and offers minimal, gentle interventions.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "appless-future",
   "keywords": [
     "wellbeing",

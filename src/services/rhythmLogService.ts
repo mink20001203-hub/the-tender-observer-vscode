@@ -3,6 +3,62 @@ import { buildWeeklyInsights } from "../core/weeklyInsights";
 import { buildWeeklyPayload } from "../core/weeklyPayload";
 import { ObserverSettings, RhythmSnapshot, TriggerVariant, WeeklyRhythmPayload } from "../core/types";
 
+function createEmptyPayload(params: {
+  context: vscode.ExtensionContext;
+  triggerVariant: TriggerVariant;
+  settings: ObserverSettings;
+}): WeeklyRhythmPayload {
+  return {
+    schemaVersion: 2,
+    privacy: "local-memory-and-local-storage-only",
+    updatedAt: new Date().toISOString(),
+    meta: {
+      generatedAt: new Date().toISOString(),
+      extensionVersion: params.context.extension.packageJSON.version ?? "0.0.0",
+      sampleIntervalSeconds: 60,
+      triggerVariant: params.triggerVariant,
+      settings: params.settings
+    },
+    summary: {
+      totalSnapshots: 0,
+      whisperCount: 0,
+      stateCounts: {
+        calm: 0,
+        focused: 0,
+        anxious: 0,
+        idle: 0,
+        lost: 0
+      },
+      averageTypingPerMinute: 0,
+      averageSwitchesPerMinute: 0,
+      averageIdleMinutes: 0,
+      averageIntensity: 0
+    },
+    snapshots: []
+  };
+}
+
+function normalizeWeeklyPayload(params: {
+  raw: unknown;
+  context: vscode.ExtensionContext;
+  triggerVariant: TriggerVariant;
+  settings: ObserverSettings;
+}): WeeklyRhythmPayload {
+  const rawObject = params.raw as Partial<WeeklyRhythmPayload> & { snapshots?: RhythmSnapshot[] };
+  const snapshots = Array.isArray(rawObject?.snapshots) ? rawObject.snapshots : [];
+
+  if (rawObject?.summary && rawObject?.meta && typeof rawObject.updatedAt === "string") {
+    return rawObject as WeeklyRhythmPayload;
+  }
+
+  return buildWeeklyPayload({
+    snapshots,
+    triggerVariant: params.triggerVariant,
+    settings: params.settings,
+    extensionVersion: params.context.extension.packageJSON.version ?? "0.0.0"
+  });
+}
+
 export async function persistWeeklyRhythm(params: {
   context: vscode.ExtensionContext;
   snapshots: RhythmSnapshot[];
@@ -37,34 +93,7 @@ export async function openWeeklyRhythmLog(params: {
   try {
     await vscode.workspace.fs.stat(file);
   } catch {
-    const emptyPayload: WeeklyRhythmPayload = {
-      schemaVersion: 2,
-      privacy: "local-memory-and-local-storage-only",
-      updatedAt: new Date().toISOString(),
-      meta: {
-        generatedAt: new Date().toISOString(),
-        extensionVersion: params.context.extension.packageJSON.version ?? "0.0.0",
-        sampleIntervalSeconds: 60,
-        triggerVariant: params.triggerVariant,
-        settings: params.settings
-      },
-      summary: {
-        totalSnapshots: 0,
-        whisperCount: 0,
-        stateCounts: {
-          calm: 0,
-          focused: 0,
-          anxious: 0,
-          idle: 0,
-          lost: 0
-        },
-        averageTypingPerMinute: 0,
-        averageSwitchesPerMinute: 0,
-        averageIdleMinutes: 0,
-        averageIntensity: 0
-      },
-      snapshots: []
-    };
+    const emptyPayload = createEmptyPayload(params);
     const encoded = new TextEncoder().encode(JSON.stringify(emptyPayload, null, 2));
     await vscode.workspace.fs.writeFile(file, encoded);
   }
@@ -85,36 +114,14 @@ export async function readWeeklyRhythmPayload(params: {
   let payload: WeeklyRhythmPayload;
   try {
     const bytes = await vscode.workspace.fs.readFile(file);
-    payload = JSON.parse(new TextDecoder().decode(bytes)) as WeeklyRhythmPayload;
+    payload = normalizeWeeklyPayload({
+      raw: JSON.parse(new TextDecoder().decode(bytes)),
+      context: params.context,
+      triggerVariant: params.triggerVariant,
+      settings: params.settings
+    });
   } catch {
-    payload = {
-      schemaVersion: 2,
-      privacy: "local-memory-and-local-storage-only",
-      updatedAt: new Date().toISOString(),
-      meta: {
-        generatedAt: new Date().toISOString(),
-        extensionVersion: params.context.extension.packageJSON.version ?? "0.0.0",
-        sampleIntervalSeconds: 60,
-        triggerVariant: params.triggerVariant,
-        settings: params.settings
-      },
-      summary: {
-        totalSnapshots: 0,
-        whisperCount: 0,
-        stateCounts: {
-          calm: 0,
-          focused: 0,
-          anxious: 0,
-          idle: 0,
-          lost: 0
-        },
-        averageTypingPerMinute: 0,
-        averageSwitchesPerMinute: 0,
-        averageIdleMinutes: 0,
-        averageIntensity: 0
-      },
-      snapshots: []
-    };
+    payload = createEmptyPayload(params);
   }
 
   return payload;
