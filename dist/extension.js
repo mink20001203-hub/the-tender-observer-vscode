@@ -42,6 +42,7 @@ const interventionEngine_1 = require("./core/interventionEngine");
 const rhythmLogService_1 = require("./services/rhythmLogService");
 const variantService_1 = require("./services/variantService");
 const webviewPanel_1 = require("./ui/webviewPanel");
+const weeklySummaryPanel_1 = require("./ui/weeklySummaryPanel");
 class RhythmMonitor {
     context;
     keyStrokes = 0;
@@ -77,7 +78,14 @@ class RhythmMonitor {
             context: this.context,
             triggerVariant: this.triggerVariant,
             settings: (0, settings_1.getSettings)()
-        })), vscode.commands.registerCommand("tenderObserver.secretMode", () => {
+        })), vscode.commands.registerCommand("tenderObserver.openWeeklySummary", async () => {
+            const { payload, insights } = await (0, rhythmLogService_1.readWeeklyInsights)({
+                context: this.context,
+                triggerVariant: this.triggerVariant,
+                settings: (0, settings_1.getSettings)()
+            });
+            (0, weeklySummaryPanel_1.openWeeklySummaryPanel)(payload, insights);
+        }), vscode.commands.registerCommand("tenderObserver.secretMode", () => {
             this.panel.postAmbient({ type: "disperse" });
             vscode.window.setStatusBarMessage("Tender Observer entered secret mode.", 1800);
         }), this.statusBar);

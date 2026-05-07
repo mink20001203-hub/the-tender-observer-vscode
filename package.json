@@ -26,6 +26,7 @@
     "onStartupFinished",
     "onCommand:tenderObserver.openAmbient",
     "onCommand:tenderObserver.openWeeklyRhythmLog",
+    "onCommand:tenderObserver.openWeeklySummary",
     "onCommand:tenderObserver.secretMode"
   ],
   "main": "./dist/extension.js",
@@ -42,6 +43,10 @@
       {
         "command": "tenderObserver.openWeeklyRhythmLog",
         "title": "Tender Observer: Open Weekly Rhythm Log"
+      },
+      {
+        "command": "tenderObserver.openWeeklySummary",
+        "title": "Tender Observer: Open Weekly Summary View"
       }
     ],
     "configuration": {

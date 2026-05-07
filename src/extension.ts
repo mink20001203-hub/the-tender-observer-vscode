@@ -3,9 +3,10 @@ import { computeState } from "./core/stateClassifier";
 import { getSettings } from "./core/settings";
 import { whisperForState } from "./core/interventionEngine";
 import { RhythmSnapshot, RhythmState, TriggerVariant } from "./core/types";
-import { openWeeklyRhythmLog, persistWeeklyRhythm } from "./services/rhythmLogService";
+import { openWeeklyRhythmLog, persistWeeklyRhythm, readWeeklyInsights } from "./services/rhythmLogService";
 import { resolveTriggerVariant } from "./services/variantService";
 import { AmbientPanel } from "./ui/webviewPanel";
+import { openWeeklySummaryPanel } from "./ui/weeklySummaryPanel";
 
 class RhythmMonitor {
   private keyStrokes = 0;
@@ -50,6 +51,14 @@ class RhythmMonitor {
           settings: getSettings()
         })
       ),
+      vscode.commands.registerCommand("tenderObserver.openWeeklySummary", async () => {
+        const { payload, insights } = await readWeeklyInsights({
+          context: this.context,
+          triggerVariant: this.triggerVariant,
+          settings: getSettings()
+        });
+        openWeeklySummaryPanel(payload, insights);
+      }),
       vscode.commands.registerCommand("tenderObserver.secretMode", () => {
         this.panel.postAmbient({ type: "disperse" });
         vscode.window.setStatusBarMessage("Tender Observer entered secret mode.", 1800);

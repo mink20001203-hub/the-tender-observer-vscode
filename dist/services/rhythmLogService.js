@@ -35,7 +35,10 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.persistWeeklyRhythm = persistWeeklyRhythm;
 exports.openWeeklyRhythmLog = openWeeklyRhythmLog;
+exports.readWeeklyRhythmPayload = readWeeklyRhythmPayload;
+exports.readWeeklyInsights = readWeeklyInsights;
 const vscode = __importStar(require("vscode"));
+const weeklyInsights_1 = require("../core/weeklyInsights");
 const weeklyPayload_1 = require("../core/weeklyPayload");
 async function persistWeeklyRhythm(params) {
     const folder = vscode.Uri.joinPath(params.context.globalStorageUri, "rhythm");
@@ -91,5 +94,51 @@ async function openWeeklyRhythmLog(params) {
     }
     const document = await vscode.workspace.openTextDocument(file);
     await vscode.window.showTextDocument(document, { preview: false });
+}
+async function readWeeklyRhythmPayload(params) {
+    const folder = vscode.Uri.joinPath(params.context.globalStorageUri, "rhythm");
+    const file = vscode.Uri.joinPath(folder, "weekly-rhythm.json");
+    await vscode.workspace.fs.createDirectory(folder);
+    let payload;
+    try {
+        const bytes = await vscode.workspace.fs.readFile(file);
+        payload = JSON.parse(new TextDecoder().decode(bytes));
+    }
+    catch {
+        payload = {
+            schemaVersion: 2,
+            privacy: "local-memory-and-local-storage-only",
+            updatedAt: new Date().toISOString(),
+            meta: {
+                generatedAt: new Date().toISOString(),
+                extensionVersion: params.context.extension.packageJSON.version ?? "0.0.0",
+                sampleIntervalSeconds: 60,
+                triggerVariant: params.triggerVariant,
+                settings: params.settings
+            },
+            summary: {
+                totalSnapshots: 0,
+                whisperCount: 0,
+                stateCounts: {
+                    calm: 0,
+                    focused: 0,
+                    anxious: 0,
+                    idle: 0,
+                    lost: 0
+                },
+                averageTypingPerMinute: 0,
+                averageSwitchesPerMinute: 0,
+                averageIdleMinutes: 0,
+                averageIntensity: 0
+            },
+            snapshots: []
+        };
+    }
+    return payload;
+}
+async function readWeeklyInsights(params) {
+    const payload = await readWeeklyRhythmPayload(params);
+    const insights = (0, weeklyInsights_1.buildWeeklyInsights)(payload);
+    return { payload, insights };
 }
 //# sourceMappingURL=rhythmLogService.js.map
