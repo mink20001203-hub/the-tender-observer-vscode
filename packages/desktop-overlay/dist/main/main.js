@@ -43,7 +43,7 @@ const path = __importStar(require("node:path"));
 function randomBetween(min, max) {
     return Math.round(min + Math.random() * (max - min));
 }
-function createSamplePayload(state, behavior, opacity, scoreWeights) {
+function createSamplePayload(state, behavior, opacity, scoreWeights, debug) {
     const message = (() => {
         if (state === "idle") {
             return "지금은 고요한 흐름이에요. 잠시 쉬어가도 괜찮습니다.";
@@ -65,7 +65,8 @@ function createSamplePayload(state, behavior, opacity, scoreWeights) {
         updatedAt: new Date().toISOString(),
         behavior,
         opacity,
-        scoreWeights
+        scoreWeights,
+        debug
     };
 }
 function nextActivityState() {
@@ -150,7 +151,19 @@ async function bootstrap() {
         return now < recoveringUntil;
     };
     const publishOverlayState = () => {
-        const payload = createSamplePayload(activity, behavior, opacity, scoreWeights);
+        const bounds = window.getBounds();
+        const cursor = electron_1.screen.getCursorScreenPoint();
+        const centerX = bounds.x + bounds.width / 2;
+        const centerY = bounds.y + bounds.height / 2;
+        const distance = Math.hypot(centerX - cursor.x, centerY - cursor.y);
+        const now = Date.now();
+        const payload = createSamplePayload(activity, behavior, opacity, scoreWeights, {
+            cursorDistancePx: Math.round(distance),
+            avoidCooldownMsLeft: Math.max(0, config_1.OVERLAY_CONFIG.avoidCooldownMs - (now - lastAvoidAt)),
+            hideCooldownMsLeft: Math.max(0, config_1.OVERLAY_CONFIG.hideCooldownMs - (now - lastHideAt)),
+            budgetMoveLeft: Math.max(0, config_1.OVERLAY_CONFIG.maxMovesPerWindow - budget.moveCount),
+            budgetTravelLeftPx: Math.max(0, Math.round(config_1.OVERLAY_CONFIG.maxTravelPerWindowPx - budget.travelPx))
+        });
         window.setOpacity(payload.opacity);
         window.webContents.send("overlay:update", payload);
     };

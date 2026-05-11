@@ -24,7 +24,13 @@ function applyPayload(payload: OverlayPayload): void {
   stateBadge.className = `state-badge state-${payload.state}`;
   message.textContent = payload.message;
   updated.textContent = `마지막 업데이트: ${new Date(payload.updatedAt).toLocaleTimeString("ko-KR")}`;
-  debug.textContent = `w: a${payload.scoreWeights.away.toFixed(2)} e${payload.scoreWeights.edge.toFixed(2)} c${payload.scoreWeights.centerAvoid.toFixed(2)}`;
+  debug.textContent = [
+    `w a${payload.scoreWeights.away.toFixed(2)} e${payload.scoreWeights.edge.toFixed(2)} c${payload.scoreWeights.centerAvoid.toFixed(2)}`,
+    `d ${payload.debug.cursorDistancePx}px`,
+    `cd a${Math.ceil(payload.debug.avoidCooldownMsLeft / 1000)}s h${Math.ceil(payload.debug.hideCooldownMsLeft / 1000)}s`,
+    `mb m${payload.debug.budgetMoveLeft} t${payload.debug.budgetTravelLeftPx}px`,
+    `b ${payload.behavior}`
+  ].join(" | ");
   card.style.opacity = String(payload.opacity);
   card.dataset.behavior = payload.behavior;
 }

@@ -27,4 +27,11 @@ export interface OverlayPayload {
     edge: number;
     centerAvoid: number;
   };
+  debug: {
+    cursorDistancePx: number;
+    avoidCooldownMsLeft: number;
+    hideCooldownMsLeft: number;
+    budgetMoveLeft: number;
+    budgetTravelLeftPx: number;
+  };
 }
