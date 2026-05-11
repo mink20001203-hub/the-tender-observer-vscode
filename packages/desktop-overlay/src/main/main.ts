@@ -80,6 +80,8 @@ async function bootstrap(): Promise<void> {
     moveCount: 0,
     travelPx: 0
   };
+  let lastLoggedBehavior: OverlayBehavior = behavior;
+  let lastLoggedActivity: OverlayState = activity;
 
   const normalizeDebugMode = (input: unknown): OverlayDebugMode => {
     return input === "detail" ? "detail" : "simple";
@@ -168,6 +170,57 @@ async function bootstrap(): Promise<void> {
     window.webContents.send("overlay:update", payload);
   };
 
+  const logBehaviorTransition = (params: {
+    from: OverlayBehavior;
+    to: OverlayBehavior;
+    reason: string;
+    distancePx: number;
+    now: number;
+  }): void => {
+    const avoidCooldownLeft = Math.max(0, OVERLAY_CONFIG.avoidCooldownMs - (params.now - lastAvoidAt));
+    const hideCooldownLeft = Math.max(0, OVERLAY_CONFIG.hideCooldownMs - (params.now - lastHideAt));
+    const budgetMoveLeft = Math.max(0, OVERLAY_CONFIG.maxMovesPerWindow - budget.moveCount);
+    const budgetTravelLeftPx = Math.max(0, Math.round(OVERLAY_CONFIG.maxTravelPerWindowPx - budget.travelPx));
+    const time = new Date(params.now).toLocaleTimeString("ko-KR", { hour12: false });
+    console.log(
+      `[overlay][timeline][${time}] behavior ${params.from} -> ${params.to} | reason=${params.reason} | ` +
+      `d=${Math.round(params.distancePx)}px | cooldown(a=${Math.ceil(avoidCooldownLeft / 1000)}s,h=${Math.ceil(hideCooldownLeft / 1000)}s) | ` +
+      `budget(m=${budgetMoveLeft},t=${budgetTravelLeftPx}px) | activity=${activity}`
+    );
+  };
+
+  const logActivityTransition = (from: OverlayState, to: OverlayState, now: number): void => {
+    const time = new Date(now).toLocaleTimeString("ko-KR", { hour12: false });
+    const idleSeconds = powerMonitor.getSystemIdleTime();
+    console.log(`[overlay][timeline][${time}] activity ${from} -> ${to} | idle=${idleSeconds}s | behavior=${behavior}`);
+  };
+
+  const applyVisualState = (
+    nextBehavior: OverlayBehavior,
+    nextOpacity: number,
+    reason: string,
+    distancePx: number,
+    now: number
+  ): void => {
+    const previousBehavior = behavior;
+    const changed = behavior !== nextBehavior || Math.abs(opacity - nextOpacity) > 0.001;
+    behavior = nextBehavior;
+    opacity = nextOpacity;
+    if (changed) {
+      if (lastLoggedBehavior !== nextBehavior) {
+        logBehaviorTransition({
+          from: previousBehavior,
+          to: nextBehavior,
+          reason,
+          distancePx,
+          now
+        });
+        lastLoggedBehavior = nextBehavior;
+      }
+      publishOverlayState();
+    }
+  };
+
   if (!existsSync(configDir)) {
     await mkdir(configDir, { recursive: true });
   }
@@ -192,18 +245,15 @@ async function bootstrap(): Promise<void> {
     const distance = Math.hypot(centerX - cursor.x, centerY - cursor.y);
 
     if (isRecovering(now)) {
-      behavior = "recovering";
-      opacity = OVERLAY_CONFIG.fadeOpacity;
+      applyVisualState("recovering", OVERLAY_CONFIG.fadeOpacity, "recover-window", distance, now);
       return;
     }
 
     if (distance <= OVERLAY_CONFIG.panicRadiusPx && canHide(now)) {
-      behavior = "hiding";
-      opacity = OVERLAY_CONFIG.hideOpacity;
+      applyVisualState("hiding", OVERLAY_CONFIG.hideOpacity, "panic-radius", distance, now);
       lastHideAt = now;
       recoveringUntil = now + OVERLAY_CONFIG.recoverDelayMs;
       lastBehaviorAt = now;
-      publishOverlayState();
       return;
     }
 
@@ -215,22 +265,18 @@ async function bootstrap(): Promise<void> {
         const next = calculateAvoidPosition(window, cursor, avoidStep, scoreWeights);
         window.setPosition(next.x, next.y, true);
         recordMove(from, next);
-        behavior = "avoiding";
-        opacity = OVERLAY_CONFIG.fadeOpacity;
+        applyVisualState("avoiding", OVERLAY_CONFIG.fadeOpacity, "avoid-radius", distance, now);
         lastAvoidAt = now;
         recoveringUntil = now + OVERLAY_CONFIG.recoverDelayMs;
         lastBehaviorAt = now;
-        publishOverlayState();
       } else {
-        behavior = "fading";
-        opacity = OVERLAY_CONFIG.fadeOpacity;
+        applyVisualState("fading", OVERLAY_CONFIG.fadeOpacity, "avoid-blocked", distance, now);
       }
       return;
     }
 
     if (distance <= OVERLAY_CONFIG.fadeRadiusPx) {
-      behavior = "fading";
-      opacity = OVERLAY_CONFIG.fadeOpacity;
+      applyVisualState("fading", OVERLAY_CONFIG.fadeOpacity, "fade-radius", distance, now);
       return;
     }
 
@@ -241,23 +287,31 @@ async function bootstrap(): Promise<void> {
       const next = calculateDriftPosition(window, driftStep, scoreWeights);
       window.setPosition(next.x, next.y, true);
       recordMove(from, next);
-      behavior = "drifting";
-      opacity = OVERLAY_CONFIG.normalOpacity;
+      applyVisualState("drifting", OVERLAY_CONFIG.normalOpacity, "drift-interval", distance, now);
       lastDriftAt = now;
       lastBehaviorAt = now;
-      publishOverlayState();
       return;
     }
 
     if (behavior !== "resting" && now - lastBehaviorAt >= OVERLAY_CONFIG.recoverDelayMs) {
-      behavior = "resting";
+      applyVisualState("resting", OVERLAY_CONFIG.normalOpacity, "recover-to-rest", distance, now);
+      return;
     }
-    opacity = OVERLAY_CONFIG.normalOpacity;
+    applyVisualState(behavior, OVERLAY_CONFIG.normalOpacity, "stabilize", distance, now);
   };
 
   const tickActivity = (): void => {
-    activity = nextActivityState();
-    publishOverlayState();
+    const next = nextActivityState();
+    if (next !== activity) {
+      logActivityTransition(activity, next, Date.now());
+      activity = next;
+      lastLoggedActivity = next;
+      publishOverlayState();
+      return;
+    }
+    if (lastLoggedActivity !== activity) {
+      lastLoggedActivity = activity;
+    }
   };
 
   window.webContents.once("did-finish-load", () => {

@@ -100,6 +100,8 @@ async function bootstrap() {
         moveCount: 0,
         travelPx: 0
     };
+    let lastLoggedBehavior = behavior;
+    let lastLoggedActivity = activity;
     const normalizeDebugMode = (input) => {
         return input === "detail" ? "detail" : "simple";
     };
@@ -175,6 +177,40 @@ async function bootstrap() {
         window.setOpacity(payload.opacity);
         window.webContents.send("overlay:update", payload);
     };
+    const logBehaviorTransition = (params) => {
+        const avoidCooldownLeft = Math.max(0, config_1.OVERLAY_CONFIG.avoidCooldownMs - (params.now - lastAvoidAt));
+        const hideCooldownLeft = Math.max(0, config_1.OVERLAY_CONFIG.hideCooldownMs - (params.now - lastHideAt));
+        const budgetMoveLeft = Math.max(0, config_1.OVERLAY_CONFIG.maxMovesPerWindow - budget.moveCount);
+        const budgetTravelLeftPx = Math.max(0, Math.round(config_1.OVERLAY_CONFIG.maxTravelPerWindowPx - budget.travelPx));
+        const time = new Date(params.now).toLocaleTimeString("ko-KR", { hour12: false });
+        console.log(`[overlay][timeline][${time}] behavior ${params.from} -> ${params.to} | reason=${params.reason} | ` +
+            `d=${Math.round(params.distancePx)}px | cooldown(a=${Math.ceil(avoidCooldownLeft / 1000)}s,h=${Math.ceil(hideCooldownLeft / 1000)}s) | ` +
+            `budget(m=${budgetMoveLeft},t=${budgetTravelLeftPx}px) | activity=${activity}`);
+    };
+    const logActivityTransition = (from, to, now) => {
+        const time = new Date(now).toLocaleTimeString("ko-KR", { hour12: false });
+        const idleSeconds = electron_1.powerMonitor.getSystemIdleTime();
+        console.log(`[overlay][timeline][${time}] activity ${from} -> ${to} | idle=${idleSeconds}s | behavior=${behavior}`);
+    };
+    const applyVisualState = (nextBehavior, nextOpacity, reason, distancePx, now) => {
+        const previousBehavior = behavior;
+        const changed = behavior !== nextBehavior || Math.abs(opacity - nextOpacity) > 0.001;
+        behavior = nextBehavior;
+        opacity = nextOpacity;
+        if (changed) {
+            if (lastLoggedBehavior !== nextBehavior) {
+                logBehaviorTransition({
+                    from: previousBehavior,
+                    to: nextBehavior,
+                    reason,
+                    distancePx,
+                    now
+                });
+                lastLoggedBehavior = nextBehavior;
+            }
+            publishOverlayState();
+        }
+    };
     if (!(0, node_fs_1.existsSync)(configDir)) {
         await (0, promises_1.mkdir)(configDir, { recursive: true });
     }
@@ -196,17 +232,14 @@ async function bootstrap() {
         const centerY = bounds.y + bounds.height / 2;
         const distance = Math.hypot(centerX - cursor.x, centerY - cursor.y);
         if (isRecovering(now)) {
-            behavior = "recovering";
-            opacity = config_1.OVERLAY_CONFIG.fadeOpacity;
+            applyVisualState("recovering", config_1.OVERLAY_CONFIG.fadeOpacity, "recover-window", distance, now);
             return;
         }
         if (distance <= config_1.OVERLAY_CONFIG.panicRadiusPx && canHide(now)) {
-            behavior = "hiding";
-            opacity = config_1.OVERLAY_CONFIG.hideOpacity;
+            applyVisualState("hiding", config_1.OVERLAY_CONFIG.hideOpacity, "panic-radius", distance, now);
             lastHideAt = now;
             recoveringUntil = now + config_1.OVERLAY_CONFIG.recoverDelayMs;
             lastBehaviorAt = now;
-            publishOverlayState();
             return;
         }
         if (distance <= config_1.OVERLAY_CONFIG.avoidRadiusPx) {
@@ -217,22 +250,18 @@ async function bootstrap() {
                 const next = (0, window_1.calculateAvoidPosition)(window, cursor, avoidStep, scoreWeights);
                 window.setPosition(next.x, next.y, true);
                 recordMove(from, next);
-                behavior = "avoiding";
-                opacity = config_1.OVERLAY_CONFIG.fadeOpacity;
+                applyVisualState("avoiding", config_1.OVERLAY_CONFIG.fadeOpacity, "avoid-radius", distance, now);
                 lastAvoidAt = now;
                 recoveringUntil = now + config_1.OVERLAY_CONFIG.recoverDelayMs;
                 lastBehaviorAt = now;
-                publishOverlayState();
             }
             else {
-                behavior = "fading";
-                opacity = config_1.OVERLAY_CONFIG.fadeOpacity;
+                applyVisualState("fading", config_1.OVERLAY_CONFIG.fadeOpacity, "avoid-blocked", distance, now);
             }
             return;
         }
         if (distance <= config_1.OVERLAY_CONFIG.fadeRadiusPx) {
-            behavior = "fading";
-            opacity = config_1.OVERLAY_CONFIG.fadeOpacity;
+            applyVisualState("fading", config_1.OVERLAY_CONFIG.fadeOpacity, "fade-radius", distance, now);
             return;
         }
         const driftBlockedByState = activity === "focused" || activity === "anxious";
@@ -242,21 +271,29 @@ async function bootstrap() {
             const next = (0, window_1.calculateDriftPosition)(window, driftStep, scoreWeights);
             window.setPosition(next.x, next.y, true);
             recordMove(from, next);
-            behavior = "drifting";
-            opacity = config_1.OVERLAY_CONFIG.normalOpacity;
+            applyVisualState("drifting", config_1.OVERLAY_CONFIG.normalOpacity, "drift-interval", distance, now);
             lastDriftAt = now;
             lastBehaviorAt = now;
-            publishOverlayState();
             return;
         }
         if (behavior !== "resting" && now - lastBehaviorAt >= config_1.OVERLAY_CONFIG.recoverDelayMs) {
-            behavior = "resting";
+            applyVisualState("resting", config_1.OVERLAY_CONFIG.normalOpacity, "recover-to-rest", distance, now);
+            return;
         }
-        opacity = config_1.OVERLAY_CONFIG.normalOpacity;
+        applyVisualState(behavior, config_1.OVERLAY_CONFIG.normalOpacity, "stabilize", distance, now);
     };
     const tickActivity = () => {
-        activity = nextActivityState();
-        publishOverlayState();
+        const next = nextActivityState();
+        if (next !== activity) {
+            logActivityTransition(activity, next, Date.now());
+            activity = next;
+            lastLoggedActivity = next;
+            publishOverlayState();
+            return;
+        }
+        if (lastLoggedActivity !== activity) {
+            lastLoggedActivity = activity;
+        }
     };
     window.webContents.once("did-finish-load", () => {
         publishOverlayState();
