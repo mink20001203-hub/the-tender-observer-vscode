@@ -32,12 +32,24 @@ body {
   transition: opacity 420ms ease, transform 420ms ease;
 }
 
-.overlay-card[data-behavior="avoid"] {
+.overlay-card[data-behavior="avoiding"] {
   transform: scale(0.985);
 }
 
-.overlay-card[data-behavior="drift"] {
+.overlay-card[data-behavior="drifting"] {
   transform: translateY(-2px);
+}
+
+.overlay-card[data-behavior="fading"] {
+  transform: scale(0.992);
+}
+
+.overlay-card[data-behavior="hiding"] {
+  transform: scale(0.976);
+}
+
+.overlay-card[data-behavior="recovering"] {
+  transform: translateY(-1px);
 }
 
 .state-row {

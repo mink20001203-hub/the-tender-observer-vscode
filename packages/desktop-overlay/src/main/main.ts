@@ -2,28 +2,40 @@ import { app, powerMonitor, screen } from "electron";
 import { calculateAvoidPosition, calculateDriftPosition, createOverlayWindow } from "./window";
 import { registerIpc } from "./ipc";
 import { DEFAULT_SCORE_WEIGHTS, OVERLAY_CONFIG, ScoreWeights } from "../shared/config";
-import { OverlayBehavior, OverlayPayload } from "../shared/types";
+import { MotionBudget, OverlayBehavior, OverlayPayload, OverlayState } from "../shared/types";
 import { existsSync, readFileSync, watch } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 
-function createSamplePayload(behavior: OverlayBehavior, opacity: number, scoreWeights: ScoreWeights): OverlayPayload {
-  const idleSeconds = powerMonitor.getSystemIdleTime();
+function randomBetween(min: number, max: number): number {
+  return Math.round(min + Math.random() * (max - min));
+}
 
-  if (idleSeconds >= 8 * 60) {
-    return {
-      state: "idle",
-      message: "지금은 고요한 흐름이에요. 잠시 쉬어가도 괜찮습니다.",
-      updatedAt: new Date().toISOString(),
-      behavior,
-      opacity,
-      scoreWeights
-    };
-  }
+function createSamplePayload(
+  state: OverlayState,
+  behavior: OverlayBehavior,
+  opacity: number,
+  scoreWeights: ScoreWeights
+): OverlayPayload {
+  const message = (() => {
+    if (state === "idle") {
+      return "지금은 고요한 흐름이에요. 잠시 쉬어가도 괜찮습니다.";
+    }
+    if (state === "focused") {
+      return "좋아요. 지금 흐름을 조용히 유지해볼게요.";
+    }
+    if (state === "anxious") {
+      return "호흡을 한번 정리해도 좋겠어요.";
+    }
+    if (state === "lost") {
+      return "괜찮아요. 작은 단위로 다시 시작해봐요.";
+    }
+    return "지금은 조용한 흐름이에요.";
+  })();
 
   return {
-    state: "calm",
-    message: "지금은 조용한 흐름이에요.",
+    state,
+    message,
     updatedAt: new Date().toISOString(),
     behavior,
     opacity,
@@ -31,16 +43,38 @@ function createSamplePayload(behavior: OverlayBehavior, opacity: number, scoreWe
   };
 }
 
+function nextActivityState(): OverlayState {
+  const idleSeconds = powerMonitor.getSystemIdleTime();
+  if (idleSeconds >= 8 * 60) {
+    return "idle";
+  }
+  if (idleSeconds >= 3 * 60) {
+    return "lost";
+  }
+  return "calm";
+}
+
 async function bootstrap(): Promise<void> {
   const window = createOverlayWindow();
   registerIpc(window);
+
   const configDir = app.getPath("userData");
   const configFile = path.join(configDir, "overlay-config.json");
+
   let scoreWeights: ScoreWeights = { ...DEFAULT_SCORE_WEIGHTS };
+  let activity: OverlayState = "calm";
   let behavior: OverlayBehavior = "resting";
   let opacity: number = OVERLAY_CONFIG.normalOpacity;
+  let lastBehaviorAt = Date.now();
   let lastDriftAt = Date.now();
   let lastAvoidAt = 0;
+  let lastHideAt = 0;
+  let recoveringUntil = 0;
+  let budget: MotionBudget = {
+    windowStartedAt: Date.now(),
+    moveCount: 0,
+    travelPx: 0
+  };
 
   const normalizeWeights = (input: Partial<ScoreWeights> | undefined): ScoreWeights => {
     const away = Number(input?.away);
@@ -70,6 +104,43 @@ async function bootstrap(): Promise<void> {
     }
   };
 
+  const resetBudgetIfNeeded = (now: number): void => {
+    if (now - budget.windowStartedAt >= OVERLAY_CONFIG.motionBudgetWindowMs) {
+      budget = {
+        windowStartedAt: now,
+        moveCount: 0,
+        travelPx: 0
+      };
+    }
+  };
+
+  const canMoveByBudget = (): boolean => {
+    return budget.moveCount < OVERLAY_CONFIG.maxMovesPerWindow && budget.travelPx < OVERLAY_CONFIG.maxTravelPerWindowPx;
+  };
+
+  const recordMove = (from: { x: number; y: number }, to: { x: number; y: number }): void => {
+    budget.moveCount += 1;
+    budget.travelPx += Math.hypot(to.x - from.x, to.y - from.y);
+  };
+
+  const canAvoid = (now: number): boolean => {
+    return now - lastAvoidAt >= OVERLAY_CONFIG.avoidCooldownMs;
+  };
+
+  const canHide = (now: number): boolean => {
+    return now - lastHideAt >= OVERLAY_CONFIG.hideCooldownMs;
+  };
+
+  const isRecovering = (now: number): boolean => {
+    return now < recoveringUntil;
+  };
+
+  const publishOverlayState = (): void => {
+    const payload = createSamplePayload(activity, behavior, opacity, scoreWeights);
+    window.setOpacity(payload.opacity);
+    window.webContents.send("overlay:update", payload);
+  };
+
   if (!existsSync(configDir)) {
     await mkdir(configDir, { recursive: true });
   }
@@ -82,51 +153,90 @@ async function bootstrap(): Promise<void> {
     applyWeightsFromFile();
   });
 
-  const publishOverlayState = (): void => {
-    const payload = createSamplePayload(behavior, opacity, scoreWeights);
-    window.setOpacity(payload.opacity);
-    window.webContents.send("overlay:update", payload);
-  };
-
   const tickBehavior = (): void => {
+    const now = Date.now();
+    resetBudgetIfNeeded(now);
+
     const bounds = window.getBounds();
+    const from = { x: bounds.x, y: bounds.y };
     const cursor = screen.getCursorScreenPoint();
     const centerX = bounds.x + bounds.width / 2;
     const centerY = bounds.y + bounds.height / 2;
     const distance = Math.hypot(centerX - cursor.x, centerY - cursor.y);
-    const now = Date.now();
+
+    if (isRecovering(now)) {
+      behavior = "recovering";
+      opacity = OVERLAY_CONFIG.fadeOpacity;
+      return;
+    }
+
+    if (distance <= OVERLAY_CONFIG.panicRadiusPx && canHide(now)) {
+      behavior = "hiding";
+      opacity = OVERLAY_CONFIG.hideOpacity;
+      lastHideAt = now;
+      recoveringUntil = now + OVERLAY_CONFIG.recoverDelayMs;
+      lastBehaviorAt = now;
+      publishOverlayState();
+      return;
+    }
 
     if (distance <= OVERLAY_CONFIG.avoidRadiusPx) {
-      const next = calculateAvoidPosition(window, cursor, scoreWeights);
-      window.setPosition(next.x, next.y, true);
-      behavior = "avoid";
-      opacity = OVERLAY_CONFIG.avoidOpacity;
-      lastAvoidAt = now;
-      publishOverlayState();
+      if (canAvoid(now) && canMoveByBudget()) {
+        const avoidStep = activity === "focused" || activity === "anxious"
+          ? OVERLAY_CONFIG.avoidStepMinPx
+          : randomBetween(OVERLAY_CONFIG.avoidStepMinPx, OVERLAY_CONFIG.avoidStepMaxPx);
+        const next = calculateAvoidPosition(window, cursor, avoidStep, scoreWeights);
+        window.setPosition(next.x, next.y, true);
+        recordMove(from, next);
+        behavior = "avoiding";
+        opacity = OVERLAY_CONFIG.fadeOpacity;
+        lastAvoidAt = now;
+        recoveringUntil = now + OVERLAY_CONFIG.recoverDelayMs;
+        lastBehaviorAt = now;
+        publishOverlayState();
+      } else {
+        behavior = "fading";
+        opacity = OVERLAY_CONFIG.fadeOpacity;
+      }
       return;
     }
 
-    if (now - lastAvoidAt < 2_000) {
+    if (distance <= OVERLAY_CONFIG.fadeRadiusPx) {
+      behavior = "fading";
+      opacity = OVERLAY_CONFIG.fadeOpacity;
       return;
     }
 
-    opacity = OVERLAY_CONFIG.normalOpacity;
-    if (now - lastDriftAt >= OVERLAY_CONFIG.driftIntervalMs) {
-      const next = calculateDriftPosition(window, scoreWeights);
+    const driftBlockedByState = activity === "focused" || activity === "anxious";
+    const driftReady = now - lastDriftAt >= OVERLAY_CONFIG.driftIntervalMs;
+    if (!driftBlockedByState && driftReady && canMoveByBudget()) {
+      const driftStep = randomBetween(OVERLAY_CONFIG.driftStepMinPx, OVERLAY_CONFIG.driftStepMaxPx);
+      const next = calculateDriftPosition(window, driftStep, scoreWeights);
       window.setPosition(next.x, next.y, true);
-      behavior = "drift";
+      recordMove(from, next);
+      behavior = "drifting";
+      opacity = OVERLAY_CONFIG.normalOpacity;
       lastDriftAt = now;
+      lastBehaviorAt = now;
       publishOverlayState();
       return;
     }
 
-    behavior = "resting";
+    if (behavior !== "resting" && now - lastBehaviorAt >= OVERLAY_CONFIG.recoverDelayMs) {
+      behavior = "resting";
+    }
+    opacity = OVERLAY_CONFIG.normalOpacity;
+  };
+
+  const tickActivity = (): void => {
+    activity = nextActivityState();
+    publishOverlayState();
   };
 
   window.webContents.once("did-finish-load", () => {
     publishOverlayState();
     setInterval(tickBehavior, OVERLAY_CONFIG.behaviorTickMs);
-    setInterval(publishOverlayState, OVERLAY_CONFIG.sampleIntervalMs);
+    setInterval(tickActivity, OVERLAY_CONFIG.sampleIntervalMs);
   });
 }
 

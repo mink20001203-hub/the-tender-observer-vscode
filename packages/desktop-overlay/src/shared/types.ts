@@ -1,5 +1,20 @@
 export type OverlayState = "calm" | "focused" | "anxious" | "idle" | "lost";
-export type OverlayBehavior = "resting" | "avoid" | "drift";
+export type OverlayBehavior = "resting" | "fading" | "avoiding" | "hiding" | "recovering" | "drifting";
+
+export interface MotionBudget {
+  windowStartedAt: number;
+  moveCount: number;
+  travelPx: number;
+}
+
+export interface OverlayRuntimeState {
+  behavior: OverlayBehavior;
+  activity: OverlayState;
+  lastAvoidAt: number;
+  lastHideAt: number;
+  recoveringUntil: number;
+  budget: MotionBudget;
+}
 
 export interface OverlayPayload {
   state: OverlayState;
