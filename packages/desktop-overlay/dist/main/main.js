@@ -43,7 +43,7 @@ const path = __importStar(require("node:path"));
 function randomBetween(min, max) {
     return Math.round(min + Math.random() * (max - min));
 }
-function createSamplePayload(state, behavior, opacity, scoreWeights, debug) {
+function createSamplePayload(state, behavior, opacity, scoreWeights, debugMode, debug) {
     const message = (() => {
         if (state === "idle") {
             return "지금은 고요한 흐름이에요. 잠시 쉬어가도 괜찮습니다.";
@@ -66,6 +66,7 @@ function createSamplePayload(state, behavior, opacity, scoreWeights, debug) {
         behavior,
         opacity,
         scoreWeights,
+        debugMode,
         debug
     };
 }
@@ -85,6 +86,7 @@ async function bootstrap() {
     const configDir = electron_1.app.getPath("userData");
     const configFile = path.join(configDir, "overlay-config.json");
     let scoreWeights = { ...config_1.DEFAULT_SCORE_WEIGHTS };
+    let debugMode = "simple";
     let activity = "calm";
     let behavior = "resting";
     let opacity = config_1.OVERLAY_CONFIG.normalOpacity;
@@ -97,6 +99,9 @@ async function bootstrap() {
         windowStartedAt: Date.now(),
         moveCount: 0,
         travelPx: 0
+    };
+    const normalizeDebugMode = (input) => {
+        return input === "detail" ? "detail" : "simple";
     };
     const normalizeWeights = (input) => {
         const away = Number(input?.away);
@@ -119,10 +124,13 @@ async function bootstrap() {
         try {
             const raw = JSON.parse((0, node_fs_1.readFileSync)(configFile, "utf8"));
             scoreWeights = normalizeWeights(raw.scoreWeights);
+            debugMode = normalizeDebugMode(raw.debugMode);
             console.log("[overlay] scoreWeights updated:", scoreWeights);
+            console.log("[overlay] debugMode updated:", debugMode);
         }
         catch {
             scoreWeights = { ...config_1.DEFAULT_SCORE_WEIGHTS };
+            debugMode = "simple";
         }
     };
     const resetBudgetIfNeeded = (now) => {
@@ -157,7 +165,7 @@ async function bootstrap() {
         const centerY = bounds.y + bounds.height / 2;
         const distance = Math.hypot(centerX - cursor.x, centerY - cursor.y);
         const now = Date.now();
-        const payload = createSamplePayload(activity, behavior, opacity, scoreWeights, {
+        const payload = createSamplePayload(activity, behavior, opacity, scoreWeights, debugMode, {
             cursorDistancePx: Math.round(distance),
             avoidCooldownMsLeft: Math.max(0, config_1.OVERLAY_CONFIG.avoidCooldownMs - (now - lastAvoidAt)),
             hideCooldownMsLeft: Math.max(0, config_1.OVERLAY_CONFIG.hideCooldownMs - (now - lastHideAt)),
@@ -171,7 +179,7 @@ async function bootstrap() {
         await (0, promises_1.mkdir)(configDir, { recursive: true });
     }
     if (!(0, node_fs_1.existsSync)(configFile)) {
-        const payload = { scoreWeights: config_1.DEFAULT_SCORE_WEIGHTS };
+        const payload = { scoreWeights: config_1.DEFAULT_SCORE_WEIGHTS, debugMode: "simple" };
         await (0, promises_1.writeFile)(configFile, JSON.stringify(payload, null, 2), "utf8");
     }
     applyWeightsFromFile();

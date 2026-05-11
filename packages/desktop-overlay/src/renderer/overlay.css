@@ -106,3 +106,7 @@ body {
   letter-spacing: 0.08em;
   color: rgba(255, 244, 224, 0.48);
 }
+
+.debug-hidden {
+  display: none;
+}

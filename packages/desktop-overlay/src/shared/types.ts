@@ -1,5 +1,6 @@
 export type OverlayState = "calm" | "focused" | "anxious" | "idle" | "lost";
 export type OverlayBehavior = "resting" | "fading" | "avoiding" | "hiding" | "recovering" | "drifting";
+export type OverlayDebugMode = "simple" | "detail";
 
 export interface MotionBudget {
   windowStartedAt: number;
@@ -27,6 +28,7 @@ export interface OverlayPayload {
     edge: number;
     centerAvoid: number;
   };
+  debugMode: OverlayDebugMode;
   debug: {
     cursorDistancePx: number;
     avoidCooldownMsLeft: number;

@@ -2,7 +2,7 @@ import { app, powerMonitor, screen } from "electron";
 import { calculateAvoidPosition, calculateDriftPosition, createOverlayWindow } from "./window";
 import { registerIpc } from "./ipc";
 import { DEFAULT_SCORE_WEIGHTS, OVERLAY_CONFIG, ScoreWeights } from "../shared/config";
-import { MotionBudget, OverlayBehavior, OverlayPayload, OverlayState } from "../shared/types";
+import { MotionBudget, OverlayBehavior, OverlayDebugMode, OverlayPayload, OverlayState } from "../shared/types";
 import { existsSync, readFileSync, watch } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import * as path from "node:path";
@@ -16,6 +16,7 @@ function createSamplePayload(
   behavior: OverlayBehavior,
   opacity: number,
   scoreWeights: ScoreWeights,
+  debugMode: OverlayDebugMode,
   debug: OverlayPayload["debug"]
 ): OverlayPayload {
   const message = (() => {
@@ -41,6 +42,7 @@ function createSamplePayload(
     behavior,
     opacity,
     scoreWeights,
+    debugMode,
     debug
   };
 }
@@ -64,6 +66,7 @@ async function bootstrap(): Promise<void> {
   const configFile = path.join(configDir, "overlay-config.json");
 
   let scoreWeights: ScoreWeights = { ...DEFAULT_SCORE_WEIGHTS };
+  let debugMode: OverlayDebugMode = "simple";
   let activity: OverlayState = "calm";
   let behavior: OverlayBehavior = "resting";
   let opacity: number = OVERLAY_CONFIG.normalOpacity;
@@ -76,6 +79,10 @@ async function bootstrap(): Promise<void> {
     windowStartedAt: Date.now(),
     moveCount: 0,
     travelPx: 0
+  };
+
+  const normalizeDebugMode = (input: unknown): OverlayDebugMode => {
+    return input === "detail" ? "detail" : "simple";
   };
 
   const normalizeWeights = (input: Partial<ScoreWeights> | undefined): ScoreWeights => {
@@ -98,11 +105,17 @@ async function bootstrap(): Promise<void> {
 
   const applyWeightsFromFile = (): void => {
     try {
-      const raw = JSON.parse(readFileSync(configFile, "utf8")) as { scoreWeights?: Partial<ScoreWeights> };
+      const raw = JSON.parse(readFileSync(configFile, "utf8")) as {
+        scoreWeights?: Partial<ScoreWeights>;
+        debugMode?: unknown;
+      };
       scoreWeights = normalizeWeights(raw.scoreWeights);
+      debugMode = normalizeDebugMode(raw.debugMode);
       console.log("[overlay] scoreWeights updated:", scoreWeights);
+      console.log("[overlay] debugMode updated:", debugMode);
     } catch {
       scoreWeights = { ...DEFAULT_SCORE_WEIGHTS };
+      debugMode = "simple";
     }
   };
 
@@ -144,7 +157,7 @@ async function bootstrap(): Promise<void> {
     const centerY = bounds.y + bounds.height / 2;
     const distance = Math.hypot(centerX - cursor.x, centerY - cursor.y);
     const now = Date.now();
-    const payload = createSamplePayload(activity, behavior, opacity, scoreWeights, {
+    const payload = createSamplePayload(activity, behavior, opacity, scoreWeights, debugMode, {
       cursorDistancePx: Math.round(distance),
       avoidCooldownMsLeft: Math.max(0, OVERLAY_CONFIG.avoidCooldownMs - (now - lastAvoidAt)),
       hideCooldownMsLeft: Math.max(0, OVERLAY_CONFIG.hideCooldownMs - (now - lastHideAt)),
@@ -159,7 +172,7 @@ async function bootstrap(): Promise<void> {
     await mkdir(configDir, { recursive: true });
   }
   if (!existsSync(configFile)) {
-    const payload = { scoreWeights: DEFAULT_SCORE_WEIGHTS };
+    const payload = { scoreWeights: DEFAULT_SCORE_WEIGHTS, debugMode: "simple" };
     await writeFile(configFile, JSON.stringify(payload, null, 2), "utf8");
   }
   applyWeightsFromFile();
